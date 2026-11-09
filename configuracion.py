@@ -1,0 +1,39 @@
+from pathlib import Path
+
+
+RAIZ = Path(__file__).resolve().parent
+SALIDAS = RAIZ / "salidas"
+SEMILLA = 0.23432
+SEMILLAS = (0.12, SEMILLA, 0.41, 0.77)
+PARAMETROS = (0.5, 2.5, 3.2, 3.5, 3.55, 3.7, 3.83, 4.0)
+GRUPOS_SEMILLAS = (
+    ("e_extincion_y_punto_fijo.png", "Extinción y punto fijo", (0.5, 2.5)),
+    ("e_ciclos.png", "Ciclos por duplicación de período", (3.2, 3.5, 3.55)),
+    ("e_caos.png", "Régimen caótico", (3.7, 4.0)),
+    ("e_ventana_periodica.png", "Ventana de período 3", (3.83,)),
+)
+ITERACIONES_INICIALES = 120
+TRANSITORIO = 1500
+MUESTRA_TARDIA = 1024
+PUNTOS_TARDIOS_FIGURA = 30
+PERIODO_MAXIMO = 32
+TOL_PERIODO = 1e-8
+
+R_BIFURCACION = (2.5, 4.0)
+MALLA_BIFURCACION = 6001
+RETENIDOS_BIFURCACION = 160
+R_ACUMULACION = 3.56995
+
+R_ZOOM = (3.80, 3.86)
+MALLA_ZOOM = 1201
+TRANSITORIO_ZOOM = 12000
+TRANSITORIOS_CONTROL_BORDES = (6000, 24000)
+RETENIDOS_ZOOM = 240
+R_PERIODICO = 3.83
+R_CAOTICO_CERCANO = 3.825
+
+ITERACIONES_EXPLICITA = 80
+N_VALIDACION_EXPLICITA = 12
+UMBRAL_ERROR_EXPLICITA = 1e-8
+PRECISION_REFERENCIA = 100
+DPI = 300

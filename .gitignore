@@ -1,0 +1,6 @@
+/salidas/
+/material_de_apoyo/
+__pycache__/
+*.py[cod]
+/.venv/
+/venv/
