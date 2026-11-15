@@ -5,6 +5,7 @@ from itertools import combinations
 import numpy as np
 
 import configuracion as cfg
+import estadistica
 import graficos
 
 
@@ -203,6 +204,142 @@ def experimento_e(orbitas, diagnosticos):
             graficos.condiciones(FIGURAS / nombre, titulo, paneles)
 
 
+# Cambia una sola cifra decimal de x0 (si la cifra es 9 resta 1 para no arrastrar). La usa el experimento F.
+def semilla_perturbada(x0, cifra):
+    digitos = list(f"{x0:.9f}"[2:])
+    valor = int(digitos[cifra - 1])
+    digitos[cifra - 1] = str(valor + 1 if valor < 9 else valor - 1)
+    return float("0." + "".join(digitos))
+
+
+# Aplica la recurrencia con r = 4 desde todas las semillas a la vez y devuelve el valor final. La usa el experimento G.
+def observaciones(semillas, iteraciones):
+    x = np.array(semillas, dtype=float)
+    for _ in range(iteraciones):
+        x = paso(cfg.R_CAOS, x)
+    return x
+
+
+# Experimento F: sensibilidad a la semilla con r = 4 (letra, sección 2; informe 3.2 y 4.2).
+# Compara la trayectoria original con 9 semillas que difieren en una cifra decimal y registra cuándo la distancia supera 0,1.
+def experimento_f():
+    n = np.arange(cfg.ITERACIONES_SENSIBILIDAD + 1)
+    x0 = cfg.SEMILLA_SENSIBILIDAD
+    base = trayectoria(cfg.R_CAOS, x0, n[-1])
+    perturbadas, distancias, tiempos, filas = [], [], [], []
+    for cifra in cfg.CIFRAS_PERTURBADAS:
+        y0 = semilla_perturbada(x0, cifra)
+        serie = trayectoria(cfg.R_CAOS, y0, n[-1])
+        d = np.abs(base - serie)
+        superado = np.flatnonzero(d > cfg.UMBRAL_SEPARACION)
+        tiempo = int(superado[0]) if len(superado) else None
+        perturbadas.append((cifra, y0, serie))
+        distancias.append((cifra, d))
+        tiempos.append(tiempo)
+        filas.append((cifra, f"{y0:.9f}", abs(y0 - x0), tiempo))
+    cifras = np.array(cfg.CIFRAS_PERTURBADAS)
+    observados = np.array([np.nan if t is None else t for t in tiempos])
+    # Como la distancia se duplica en cada iteración, el tiempo de separación crece log2(10) por cifra.
+    pendiente, intercepto = np.polyfit(cifras, observados, 1)
+    ajustados = intercepto + pendiente * cifras
+    r2 = 1 - np.sum((observados - ajustados) ** 2) / np.sum((observados - observados.mean()) ** 2)
+
+    guardar_csv("f_sensibilidad.csv", ("cifra_modificada", "semilla_perturbada", "distancia_inicial",
+                                       "primera_iteracion_sobre_umbral"), filas)
+    guardar_csv("f_ajuste_tiempo.csv", ("pendiente_observada", "pendiente_teorica_log2_10",
+                                        "intercepto", "r2"),
+                [(pendiente, np.log2(10), intercepto, r2)])
+    graficos.sensibilidad_trayectorias(FIGURAS / "f_trayectorias.png", n, base, perturbadas)
+    graficos.sensibilidad_distancias(FIGURAS / "f_distancias.png", n, distancias, tiempos)
+    graficos.tiempo_separacion(FIGURAS / "f_tiempo_separacion.png", cifras, observados,
+                               pendiente, intercepto)
+
+    print(f"\n[F] Sensibilidad (r = 4, x0 = {x0}): primera iteración con |x_n - y_n| > {cfg.UMBRAL_SEPARACION:g}")
+    for cifra, _, _, tiempo in filas:
+        print(f"    cifra {cifra}: n = {tiempo}")
+    print(f"    pendiente = {pendiente:.2f} iteraciones por cifra (teoría log2(10) = {np.log2(10):.2f}), R2 = {r2:.3f}")
+
+
+# Experimento G: distribución de x_1000 con N = 10 000 semillas k/(N+1) (letra, secciones 3.1 y 3.2; informe 3.3 y 4.3).
+# Calcula media, varianza, cuantiles y el test de Kolmogórov–Smirnov frente a la uniforme y a la Beta(1/2, 1/2).
+def experimento_g():
+    semillas = np.arange(1, cfg.N_MUESTRA + 1) / (cfg.N_MUESTRA + 1)
+    x = observaciones(semillas, cfg.ITERACION_OBSERVADA)
+    media, varianza, cuantiles = estadistica.momentos_y_cuantiles(x)
+    uniforme, beta = estadistica.UNIFORME, estadistica.BETA_MEDIO
+    filas = [("media", media, uniforme.mean(), beta.mean()),
+             ("varianza", varianza, uniforme.var(), beta.var())]
+    filas += [(f"cuantil_{p:.2f}", q, uniforme.ppf(p), beta.ppf(p))
+              for p, q in zip(cfg.CUANTILES, cuantiles)]
+    guardar_csv("g_estadisticos.csv", ("medida", "muestra", "uniforme_0_1", "beta_1_2_1_2"), filas)
+    ks = []
+    for nombre, distribucion in (("Uniforme(0, 1)", uniforme), ("Beta(1/2, 1/2)", beta)):
+        estadistico, p_valor = estadistica.kolmogorov_smirnov(x, distribucion)
+        ks.append((nombre, estadistico, p_valor, estadistica.decision(p_valor)))
+    guardar_csv("g_ks.csv", ("distribucion_teorica", "estadistico_D", "p_valor", "decision"), ks)
+    graficos.distribucion(FIGURAS / "g_histograma.png", x)
+    graficos.ecdf(FIGURAS / "g_ecdf.png", x)
+
+    print(f"\n[G] Distribución de x_{cfg.ITERACION_OBSERVADA} con N = {len(x)} semillas k/(N+1)")
+    print(f"    media = {media:.4f}, varianza = {varianza:.4f}  (Uniforme: 0.5, 0.0833; Beta: 0.5, 0.125)")
+    for nombre, estadistico, p_valor, decision in ks:
+        print(f"    KS frente a {nombre}: D = {estadistico:.4f}, p = {p_valor:.3g} -> {decision}")
+    return x
+
+
+# Aplica el test de Ljung-Box a una serie y calcula sus autocorrelaciones. La usan los experimentos H e I.
+def ljung_box_serie(nombre, x):
+    q, p_valor = estadistica.ljung_box(x, cfg.REZAGOS_LJUNG_BOX)
+    fila = (nombre, q, cfg.REZAGOS_LJUNG_BOX, p_valor, estadistica.decision(p_valor))
+    return fila, estadistica.autocorrelaciones(x, cfg.REZAGOS_LJUNG_BOX)
+
+
+# Experimento H: dependencia con el test de Ljung-Box (letra, sección 3.3; informe 3.4 y 4.4).
+# Se aplica a la muestra de x_1000 y a una sola trayectoria, y se grafica x_t contra x_t+1.
+def experimento_h(muestra):
+    trayectoria_unica = trayectoria(cfg.R_CAOS, cfg.SEMILLA, cfg.N_MUESTRA)[1:]
+    fila_a, rho_a = ljung_box_serie("Muestra x_1000 ordenada por semilla", muestra)
+    fila_b, rho_b = ljung_box_serie("Una sola trayectoria x_n (n = 1..N)", trayectoria_unica)
+    guardar_csv("h_ljung_box.csv", ("serie", "estadistico_Q", "grados_libertad", "p_valor", "decision"),
+                (fila_a, fila_b))
+    guardar_csv("h_autocorrelaciones.csv", ("rezago", "muestra_por_semilla", "trayectoria_unica"),
+                zip(range(1, cfg.REZAGOS_LJUNG_BOX + 1), rho_a, rho_b))
+    graficos.dependencia(FIGURAS / "h_dependencia.png", [
+        ("Muestra $x_{1000}$ ordenada por semilla", muestra, rho_a),
+        (f"Una sola trayectoria ($x_0={cfg.SEMILLA:g}$)", trayectoria_unica, rho_b),
+    ])
+
+    print(f"\n[H] Ljung-Box (h = {cfg.REZAGOS_LJUNG_BOX}, alfa = {cfg.NIVEL_SIGNIFICACION})")
+    for fila in (fila_a, fila_b):
+        print(f"    {fila[0]}: Q = {fila[1]:.2f}, p = {fila[3]:.3g} -> {fila[4]}")
+    return trayectoria_unica
+
+
+# Experimento I: uniformización u = (2/pi) arcsin(sqrt(x)) (letra, sección 4; informe 3.5 y 4.5).
+# Repite histograma, media, varianza, cuantiles, KS y Ljung-Box con los datos transformados.
+def experimento_i(muestra, trayectoria_unica):
+    u = 2 / np.pi * np.arcsin(np.sqrt(muestra))
+    u_trayectoria = 2 / np.pi * np.arcsin(np.sqrt(trayectoria_unica))
+    media, varianza, cuantiles = estadistica.momentos_y_cuantiles(u)
+    uniforme = estadistica.UNIFORME
+    filas = [("media", media, uniforme.mean()), ("varianza", varianza, uniforme.var())]
+    filas += [(f"cuantil_{p:.2f}", q, uniforme.ppf(p)) for p, q in zip(cfg.CUANTILES, cuantiles)]
+    guardar_csv("i_estadisticos.csv", ("medida", "muestra_transformada", "uniforme_0_1"), filas)
+    estadistico, p_valor = estadistica.kolmogorov_smirnov(u, uniforme)
+    guardar_csv("i_ks.csv", ("distribucion_teorica", "estadistico_D", "p_valor", "decision"),
+                [("Uniforme(0, 1)", estadistico, p_valor, estadistica.decision(p_valor))])
+    fila_a, _ = ljung_box_serie("Muestra u ordenada por semilla", u)
+    fila_b, _ = ljung_box_serie("Una sola trayectoria u_n (n = 1..N)", u_trayectoria)
+    guardar_csv("i_ljung_box.csv", ("serie", "estadistico_Q", "grados_libertad", "p_valor", "decision"),
+                (fila_a, fila_b))
+    graficos.uniformizacion(FIGURAS / "i_uniformizacion.png", u, u_trayectoria)
+
+    print(f"\n[I] Datos transformados: media = {media:.4f}, varianza = {varianza:.4f} (Uniforme: 0.5, 0.0833)")
+    print(f"    KS frente a Uniforme(0, 1): D = {estadistico:.4f}, p = {p_valor:.3g} -> {estadistica.decision(p_valor)}")
+    for fila in (fila_a, fila_b):
+        print(f"    Ljung-Box, {fila[0]}: Q = {fila[1]:.2f}, p = {fila[3]:.3g} -> {fila[4]}")
+
+
 def main():
     FIGURAS.mkdir(parents=True, exist_ok=True)
     TABLAS.mkdir(parents=True, exist_ok=True)
@@ -215,6 +352,10 @@ def main():
     experimento_c()
     experimento_d()
     experimento_e(orbitas, diagnosticos)
+    experimento_f()
+    muestra = experimento_g()
+    trayectoria_unica = experimento_h(muestra)
+    experimento_i(muestra, trayectoria_unica)
     print(f"Figuras y tablas guardadas en {cfg.SALIDAS}")
 
 

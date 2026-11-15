@@ -157,3 +157,135 @@ def condiciones(ruta, grupo, muestras):
         eje.set_xlabel("Iteración $n$")
     figura.supylabel("Estado $x_n$")
     _guardar(figura, ruta)
+
+#Experimenti de sensibilidad
+def sensibilidad_trayectorias(ruta, n, base, perturbadas):
+    filas = (len(perturbadas) + 2) // 3
+    figura, ejes = plt.subplots(filas, 3, figsize=(11.2, 2.25 * filas + 1.2), sharex=True,
+                               sharey=True, squeeze=False, layout="constrained")
+    figura.suptitle(f"Trayectorias con semillas próximas  ·  $r={cfg.R_CAOS:g}$  ·  "
+                    f"$x_0={cfg.SEMILLA_SENSIBILIDAD:.9f}$")
+    for eje, (cifra, y0, serie) in zip(ejes.flat, perturbadas):
+        eje.plot(n, base, color=COLOR, lw=1.0, label="$x_n$ (semilla original)")
+        eje.plot(n, serie, color=CAOTICO, lw=1.0, ls="--", label="$y_n$ (semilla perturbada)")
+        eje.set(title=f"$y_0={y0:.9f}$  ·  $\\Delta_0=10^{{-{cifra}}}$", ylim=(-0.03, 1.03),
+                xlim=(0, n[-1]), yticks=(0, 0.5, 1))
+    for eje in list(ejes.flat)[len(perturbadas):]:
+        eje.set_visible(False)
+    handles, etiquetas = ejes[0, 0].get_legend_handles_labels()
+    figura.legend(handles, etiquetas, loc="outside lower center", ncols=2, frameon=False)
+    for eje in ejes[-1]:
+        eje.set_xlabel("Iteración $n$")
+    figura.supylabel("Estado")
+    _guardar(figura, ruta)
+
+
+def sensibilidad_distancias(ruta, n, distancias, tiempos):
+    figura, eje = plt.subplots(figsize=(10.2, 5.8), layout="constrained")
+    figura.suptitle(f"Distancia entre trayectorias  ·  $r={cfg.R_CAOS:g}$")
+    colores = plt.cm.viridis(np.linspace(0.05, 0.92, len(distancias)))
+    for (cifra, d), tiempo, color in zip(distancias, tiempos, colores):
+        eje.semilogy(n, np.ma.masked_less_equal(d, 0), color=color, lw=1.1,
+                     label=f"$\\Delta_0=10^{{-{cifra}}}$")
+        if tiempo is not None:
+            eje.plot(tiempo, d[tiempo], "o", color=color, markersize=5, zorder=4)
+    eje.axhline(cfg.UMBRAL_SEPARACION, color="#444444", lw=1.0, ls="-.",
+                label=f"Umbral ({cfg.UMBRAL_SEPARACION:g})")
+    eje.set(xlabel="Iteración $n$", ylabel="$|x_n-y_n|$", xlim=(0, n[-1]))
+    eje.legend(frameon=False, ncols=2, fontsize=9, loc="lower right")
+    _guardar(figura, ruta)
+
+
+def tiempo_separacion(ruta, cifras, tiempos, pendiente, intercepto):
+    figura, eje = plt.subplots(figsize=(7.6, 5.0), layout="constrained")
+    figura.suptitle("Tiempo de separación según la proximidad inicial")
+    cifras = np.asarray(cifras, dtype=float)
+    malla = np.linspace(cifras.min(), cifras.max(), 50)
+    eje.plot(malla, np.log2(10) * (malla - 1), color=PERIODICO, lw=1.3, ls="--",
+             label="Teoría: $(k-1)\\,\\log_2 10$")
+    eje.plot(malla, intercepto + pendiente * malla, color=CAOTICO, lw=1.3, ls=":",
+             label=f"Ajuste lineal (pendiente {pendiente:.2f})")
+    eje.plot(cifras, tiempos, "o", color=COLOR, markersize=6, label="Observado")
+    eje.set(xlabel="Cifra decimal modificada $k$  ($\\Delta_0=10^{-k}$)",
+            ylabel="Primera iteración con $|x_n-y_n|>0{,}1$")
+    eje.legend(frameon=False, loc="upper left")
+    _guardar(figura, ruta)
+
+
+def distribucion(ruta, x):
+    figura, ejes = plt.subplots(1, 2, figsize=(11.2, 4.7), sharey=True, layout="constrained")
+    figura.suptitle(f"Distribución de $x_{{{cfg.ITERACION_OBSERVADA}}}$  ·  $N={len(x)}$  ·  "
+                    f"{cfg.INTERVALOS_HISTOGRAMA} intervalos")
+    t = np.linspace(0.0015, 0.9985, 1500)
+    casos = (("Frente a la Uniforme(0, 1)", np.ones_like(t), PERIODICO, "Densidad uniforme"),
+             ("Frente a la Beta(1/2, 1/2)", 1 / (np.pi * np.sqrt(t * (1 - t))), CAOTICO,
+              "Densidad Beta(1/2, 1/2)"))
+    for eje, (titulo, densidad, color, etiqueta) in zip(ejes, casos):
+        eje.hist(x, bins=cfg.INTERVALOS_HISTOGRAMA, range=(0, 1), density=True,
+                 color="#9DB8C9", edgecolor="white", label="Histograma de densidad")
+        eje.plot(t, densidad, color=color, lw=2.0, label=etiqueta)
+        eje.set(title=titulo, xlabel=f"$x_{{{cfg.ITERACION_OBSERVADA}}}$", xlim=(0, 1), ylim=(0, 4.6))
+        eje.legend(frameon=False, loc="upper center", fontsize=9)
+    ejes[0].set_ylabel("Densidad")
+    _guardar(figura, ruta)
+
+
+def ecdf(ruta, x):
+    n = len(x)
+    xs = np.sort(x)
+    empirica = np.arange(1, n + 1) / n
+    uniforme = xs
+    beta = 2 / np.pi * np.arcsin(np.sqrt(xs))
+    figura, (arriba, abajo) = plt.subplots(2, 1, figsize=(8.6, 7.2), sharex=True,
+                                           height_ratios=(2, 1), layout="constrained")
+    figura.suptitle("Función de distribución empírica y teóricas")
+    arriba.plot(xs, empirica, color=COLOR, lw=1.8, label="Empírica")
+    arriba.plot(xs, uniforme, color=PERIODICO, lw=1.3, ls="--", label="Uniforme(0, 1)")
+    arriba.plot(xs, beta, color=CAOTICO, lw=1.3, ls=":", label="Beta(1/2, 1/2)")
+    arriba.set(ylabel="$F(x)$", ylim=(0, 1.02), xlim=(0, 1))
+    arriba.legend(frameon=False, loc="lower right")
+    abajo.plot(xs, empirica - uniforme, color=PERIODICO, lw=1.2, ls="--", label="Empírica $-$ Uniforme")
+    abajo.plot(xs, empirica - beta, color=CAOTICO, lw=1.2, ls=":", label="Empírica $-$ Beta(1/2, 1/2)")
+    abajo.axhline(0, color="#444444", lw=0.8)
+    abajo.set(xlabel=f"$x_{{{cfg.ITERACION_OBSERVADA}}}$", ylabel="Diferencia")
+    abajo.legend(frameon=False, loc="lower center", ncols=2, fontsize=9)
+    _guardar(figura, ruta)
+
+
+def dependencia(ruta, series):
+    figura, ejes = plt.subplots(2, len(series), figsize=(5.7 * len(series), 7.6),
+                               squeeze=False, layout="constrained")
+    figura.suptitle("Dependencia entre observaciones consecutivas")
+    for columna, (titulo, x, acf) in enumerate(series):
+        arriba, abajo = ejes[0, columna], ejes[1, columna]
+        arriba.plot(x[:-1], x[1:], ".", color=COLOR, markersize=1.6, alpha=0.35)
+        arriba.set(title=titulo, xlabel="$x_t$", ylabel="$x_{t+1}$", xlim=(0, 1), ylim=(0, 1))
+        rezagos = np.arange(1, len(acf) + 1)
+        cota = 1.96 / np.sqrt(len(x))
+        abajo.bar(rezagos, acf, color=COLOR, width=0.6)
+        abajo.axhline(cota, color=CAOTICO, lw=1.0, ls="--", label="Cotas $\\pm 1{,}96/\\sqrt{N}$")
+        abajo.axhline(-cota, color=CAOTICO, lw=1.0, ls="--")
+        abajo.axhline(0, color="#444444", lw=0.8)
+        abajo.set(xlabel="Rezago", ylabel="Autocorrelación", xticks=rezagos[::2],
+                  ylim=(-0.12, 0.12))
+        abajo.legend(frameon=False, loc="upper right", fontsize=9)
+    _guardar(figura, ruta)
+
+# Uniformizacion de los datos
+def uniformizacion(ruta, u, par_trayectoria):
+    n = len(u)
+    us = np.sort(u)
+    figura, ejes = plt.subplots(1, 3, figsize=(15.0, 4.6), layout="constrained")
+    figura.suptitle(f"Datos transformados  $u=\\frac{{2}}{{\\pi}}\\arcsin\\sqrt{{x}}$  ·  $N={n}$")
+    ejes[0].hist(u, bins=cfg.INTERVALOS_HISTOGRAMA, range=(0, 1), density=True,
+                 color="#9DB8C9", edgecolor="white", label="Histograma de densidad")
+    ejes[0].axhline(1, color=PERIODICO, lw=2.0, label="Densidad uniforme")
+    ejes[0].set(title="Histograma", xlabel="$u$", ylabel="Densidad", xlim=(0, 1), ylim=(0, 1.6))
+    ejes[0].legend(frameon=False, loc="upper center", fontsize=9)
+    ejes[1].plot(us, np.arange(1, n + 1) / n - us, color=COLOR, lw=1.3)
+    ejes[1].axhline(0, color="#444444", lw=0.8)
+    ejes[1].set(title="Empírica $-$ Uniforme", xlabel="$u$", ylabel="$F_N(u)-u$", xlim=(0, 1))
+    ejes[2].plot(par_trayectoria[:-1], par_trayectoria[1:], ".", color=CAOTICO, markersize=1.6, alpha=0.35)
+    ejes[2].set(title="Trayectoria única transformada", xlabel="$u_t$", ylabel="$u_{t+1}$",
+                xlim=(0, 1), ylim=(0, 1))
+    _guardar(figura, ruta)
