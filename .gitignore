@@ -4,3 +4,13 @@ __pycache__/
 *.py[cod]
 /.venv/
 /venv/
+
+# LaTeX
+/informe/*.aux
+/informe/*.log
+/informe/*.out
+/informe/*.toc
+/informe/*.fls
+/informe/*.fdb_latexmk
+/informe/*.synctex.gz
+/informe/build.log

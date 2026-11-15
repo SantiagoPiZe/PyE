@@ -1,2 +1,5 @@
-numpy==1.26.4
-matplotlib==3.8.3
+# Versiones verificadas: numpy 1.26.4, matplotlib 3.8.3, scipy 1.13.1 (Python 3.12).
+# Los rangos permiten instalar en versiones más nuevas de Python.
+numpy>=1.26
+matplotlib>=3.8
+scipy>=1.11
